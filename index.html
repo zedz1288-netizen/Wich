@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Witch Hat Atelier: True Glyph Weaver</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Georgia', serif; background-color: #79a6d2; }
+        #gameContainer { position: relative; width: 100%; height: 100%; }
+        #canvas3d { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        
+        /* Spellbook Toggle */
+        #spellbookBtn {
+            position: absolute; bottom: 40px; right: 40px; width: 80px; height: 80px;
+            background: #2b3a4a; border: 3px solid #d4af37; border-radius: 50%;
+            cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex; align-items: center; justify-content: center; z-index: 10;
+        }
+        #spellbookBtn:hover { transform: scale(1.1) rotate(-5deg); background: #3a4f63; }
+        #spellbookBtn::after { content: "✒️"; font-size: 32px; }
+
+        /* The Grimoire Book UI */
+        #bookOverlay {
+            display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%); width: 900px; height: 600px;
+            background: #f4ebd8; border-radius: 12px;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.7), inset 0 0 50px rgba(139, 115, 85, 0.3);
+            z-index: 100; display: flex; 
+            border: 5px solid #2c1e16;
+        }
+        
+        /* Book Spine */
+        #spine {
+            position: absolute; left: 50%; top: 0; bottom: 0; width: 50px;
+            margin-left: -25px; background: linear-gradient(to right, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.1) 20%, rgba(0,0,0,0.1) 80%, rgba(0,0,0,0.4) 100%);
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.6); z-index: 101; pointer-events: none;
+        }
+
+        /* Left Page: Theory & Detection */
+        #leftPage {
+            width: 50%; height: 100%; padding: 45px; border-right: 1px solid rgba(0,0,0,0.15);
+            display: flex; flex-direction: column; position: relative;
+        }
+        h2 { margin-top: 0; color: #2c1e16; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; border-bottom: 2px solid #2c1e16; padding-bottom: 8px; text-align: center;}
+        
+        .panel-section { background: rgba(255,255,255,0.5); border: 1px solid #d3c7b1; padding: 15px; margin-bottom: 15px; border-radius: 6px; }
+        .panel-title { font-size: 15px; font-weight: bold; color: #5a4634; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;}
+        .instruction-text { font-size: 13px; color: #4a3f35; line-height: 1.4; }
+        
+        /* Dynamic Detection Readouts */
+        .readout-box {
+            background: #2c1e16; color: #d4af37; padding: 15px; border-radius: 6px; 
+            text-align: center; margin-top: auto; box-shadow: inset 0 0 10px #000;
+        }
+        .readout-label { font-size: 12px; color: #a99d8a; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;}
+        .readout-value { font-size: 22px; font-weight: bold; text-shadow: 1px 1px 2px #000; transition: color 0.3s;}
+
+        /* Right Page: Drawing Canvas */
+        #rightPage { width: 50%; height: 100%; padding: 45px; position: relative; display: flex; flex-direction: column;}
+        
+        #canvasContainer {
+            width: 100%; flex-grow: 1; background: #fffdf9; border: 2px solid #8b7355;
+            border-radius: 50%; /* Circular canvas to imply the Glyph boundary */
+            position: relative; cursor: crosshair;
+            box-shadow: inset 0 0 30px rgba(139, 115, 85, 0.2);
+            overflow: hidden; margin-bottom: 20px;
+        }
+        #drawingCanvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 2; display: block; }
+        
+        /* Faint guidelines */
+        .guide-ring {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            border: 2px dashed rgba(139, 115, 85, 0.25); border-radius: 50%; pointer-events: none; z-index: 1;
+        }
+
+        /* Controls */
+        #controls { display: flex; justify-content: space-between; z-index: 5; }
+        button.action-btn {
+            padding: 12px 20px; background: #f4ebd8; border: 2px solid #2c1e16;
+            color: #2c1e16; font-size: 14px; cursor: pointer; font-family: inherit; font-weight: bold;
+            transition: all 0.2s; box-shadow: 3px 3px 0px rgba(44, 30, 22, 0.2); border-radius: 4px;
+        }
+        button.action-btn:hover { background: #2c1e16; color: #f4ebd8; transform: translate(-1px, -1px); box-shadow: 4px 4px 0px rgba(44, 30, 22, 0.4); }
+        .close-btn { position: absolute; top: 15px; right: 20px; background: none; border: none; font-size: 28px; cursor: pointer; color: #2c1e16; z-index: 10;}
+        .close-btn:hover { color: #d4af37; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="gameContainer">
+    <canvas id="canvas3d"></canvas>
+    <div id="spellbookBtn" title="Open Grimoire"></div>
+
+    <div id="bookOverlay">
+        <div id="spine"></div>
+        
+        <div id="leftPage">
+            <h2>Magic Glyphs</h2>
+            
+            <div class="panel-section">
+                <div class="panel-title">1. Rune (Center)</div>
+                <div class="instruction-text">
+                    <strong>Wind:</strong> Horizontal lines (〰)<br>
+                    <strong>Water:</strong> Vertical lines (💧)<br>
+                    <strong>Float:</strong> Spiral / Curves (🌀)
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">2. Keystone (Outer)</div>
+                <div class="instruction-text">
+                    <strong>Pillar:</strong> Straight line (Linear Shot)<br>
+                    <strong>Convergence:</strong> Triangle (Arcing Blast)<br>
+                    <strong>Float:</strong> Upward line (Anti-Gravity Lift)
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="panel-title">3. Glyph (Boundary)</div>
+                <div class="instruction-text">
+                    Draw a large circle around the edge of the canvas to close the seal and instantly cast.
+                </div>
+            </div>
+            
+            <div class="readout-box">
+                <div class="readout-label">Active Formulation</div>
+                <div id="val-rune" class="readout-value" style="color: #888;">No Rune</div>
+                <div style="margin: 5px 0; color: #555;">+</div>
+                <div id="val-keystone" class="readout-value" style="color: #888;">No Keystone</div>
+            </div>
+        </div>
+
+        <div id="rightPage">
+            <button class="close-btn" id="closeBtn">✖</button>
+            <div id="canvasContainer">
+                <div class="guide-ring" style="width: 90%; height: 90%; border: 3px solid rgba(139, 115, 85, 0.1);"></div>
+                <div class="guide-ring" style="width: 40%; height: 40%;"></div>
+                <canvas id="drawingCanvas"></canvas>
+            </div>
+            <div id="controls">
+                <button class="action-btn" id="clearBtn">Wipe Ink</button>
+                <button class="action-btn" id="castBtn" style="background: #2c1e16; color: #d4af37; border-color: #d4af37;">Invoke Magic</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // 1. STUDIO GHIBLI 3D ENVIRONMENT
+    // ==========================================
+    const canvas3d = document.getElementById('canvas3d');
+    const renderer = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#6eb5d1'); 
+    scene.fog = new THREE.FogExp2('#8abecf', 0.012);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3, 16);
+    camera.lookAt(0, 1.5, 0);
+
+    const ambientLight = new THREE.AmbientLight('#bfe6c7', 0.85); 
+    scene.add(ambientLight);
+    const sunLight = new THREE.DirectionalLight('#fffae6', 1.4);
+    sunLight.position.set(20, 30, 10);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    scene.add(sunLight);
+
+    // ROLLING HILLS (TERRAIN)
+    const terrainGeo = new THREE.PlaneGeometry(120, 120, 60, 60);
+    terrainGeo.rotateX(-Math.PI / 2);
+    const posAttr = terrainGeo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+        const x = posAttr.getX(i);
+        const z = posAttr.getZ(i);
+        const y = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 3.5 + Math.sin(x * 0.1) * 1.0;
+        posAttr.setY(i, y);
+    }
+    terrainGeo.computeVertexNormals();
+    const terrainMat = new THREE.MeshStandardMaterial({ color: '#5b9c45', roughness: 0.9, flatShading: true }); 
+    const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+    terrain.receiveShadow = true;
+    scene.add(terrain);
+
+    // INSTANCED LUSH GRASS
+    const grassCount = 20000;
+    const grassGeo = new THREE.ConeGeometry(0.08, 0.6, 3);
+    grassGeo.translate(0, 0.3, 0); 
+    const grassMat = new THREE.MeshStandardMaterial({ color: '#7ab85a', roughness: 1.0 }); 
+    const grassInstanced = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+    
+    const dummyMatrix = new THREE.Object3D();
+    for (let i = 0; i < grassCount; i++) {
+        const x = (Math.random() - 0.5) * 80;
+        const z = (Math.random() - 0.5) * 80;
+        if (Math.abs(x) < 2.5 && Math.abs(z) < 2.5) continue; 
+        
+        const y = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 3.5 + Math.sin(x * 0.1) * 1.0;
+        dummyMatrix.position.set(x, y - 0.1, z);
+        dummyMatrix.rotation.set((Math.random()-0.5)*0.3, Math.random()*Math.PI, (Math.random()-0.5)*0.3);
+        dummyMatrix.scale.set(1, Math.random() * 1.5 + 0.5, 1);
+        dummyMatrix.updateMatrix();
+        grassInstanced.setMatrixAt(i, dummyMatrix.matrix);
+    }
+    scene.add(grassInstanced);
+
+    // MOSSY MONOLITHS
+    const stoneGroup = new THREE.Group();
+    function buildStone(x, z, scale) {
+        const stoneGeo = new THREE.DodecahedronGeometry(scale, 1);
+        const stoneMat = new THREE.MeshStandardMaterial({ color: '#5b7050', roughness: 0.95, flatShading: true });
+        const stone = new THREE.Mesh(stoneGeo, stoneMat);
+        const yBase = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 3.5 + Math.sin(x * 0.1) * 1.0;
+        stone.position.set(x, yBase + scale * 0.3, z);
+        stone.scale.set(1, 1.4, 1.1);
+        stone.castShadow = true;
+        stone.receiveShadow = true;
+        stoneGroup.add(stone);
+    }
+    buildStone(-5, -6, 1.5);
+    buildStone(7, -8, 2.2);
+    scene.add(stoneGroup);
+
+    // TRAINING DUMMY
+    const dummyGroup = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: '#d1c099', roughness: 0.9 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: '#8a6b4e', roughness: 0.8 });
+    
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.4, 1.6, 8), bodyMat);
+    body.position.y = 1.5; body.castShadow = true; dummyGroup.add(body);
+    const arms = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.15, 0.15), woodMat);
+    arms.position.set(0, 1.7, 0); arms.castShadow = true; dummyGroup.add(arms);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.9, 6), woodMat);
+    pole.position.y = 0.45; pole.castShadow = true; dummyGroup.add(pole);
+    
+    let dummyBaseY = 0.4;
+    dummyGroup.position.set(0, dummyBaseY, 0);
+    scene.add(dummyGroup);
+
+    // ==========================================
+    // 2. SPELL EFFECTS & PHYSICS ENGINE
+    // ==========================================
+    let projectiles = [];
+    let activeParticles = [];
+    let activeAuras = [];
+    
+    let dummyTargetTiltX = 0;
+    let dummyTargetTiltZ = 0;
+    let dummyTargetY = dummyBaseY;
+
+    const SPELL_COLORS = { 'Wind': '#e6f7eb', 'Water': '#4da6ff', 'Float': '#ffd700' };
+
+    function createExplosion(x, y, z, colorHex, sizeMulti = 1) {
+        for (let i = 0; i < 40 * sizeMulti; i++) {
+            const pGeo = new THREE.SphereGeometry(0.15 * sizeMulti, 4, 4);
+            const pMesh = new THREE.Mesh(pGeo, new THREE.MeshBasicMaterial({ color: colorHex, transparent: true }));
+            pMesh.position.set(x, y, z);
+            scene.add(pMesh);
+            activeParticles.push({
+                mesh: pMesh,
+                vx: (Math.random() - 0.5) * 0.6 * sizeMulti, 
+                vy: (Math.random()) * 0.6 * sizeMulti + 0.1, 
+                vz: (Math.random() - 0.5) * 0.6 * sizeMulti,
+                age: 0, maxAge: 20 + Math.random() * 25, gravity: 0.02
+            });
+        }
+    }
+
+    function spawnSpell(rune, keystone) {
+        const color = SPELL_COLORS[rune] || '#ffffff';
+        const startPt = new THREE.Vector3(camera.position.x, camera.position.y - 1, camera.position.z - 2);
+        const targetPt = new THREE.Vector3(dummyGroup.position.x, dummyGroup.position.y + 1.5, dummyGroup.position.z);
+
+        if (keystone === 'Float') {
+            createExplosion(targetPt.x, targetPt.y - 1, targetPt.z, color, 1.5);
+            dummyTargetY = 4.0; 
+            
+            const aura = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.2, 1.5, 4, 16, 1, true),
+                new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+            );
+            aura.position.copy(targetPt);
+            scene.add(aura);
+            activeAuras.push({ mesh: aura, age: 0, maxAge: 120 });
+            
+            setTimeout(() => { dummyTargetY = dummyBaseY; }, 3000);
+            return;
+        }
+
+        const projGeo = (keystone === 'Pillar') ? new THREE.CylinderGeometry(0.2, 0.2, 2, 8) : new THREE.SphereGeometry(0.4, 12, 12);
+        const projMat = new THREE.MeshBasicMaterial({ color: color });
+        const mesh = new THREE.Mesh(projGeo, projMat);
+        
+        if (keystone === 'Pillar') mesh.rotation.x = Math.PI / 2;
+        scene.add(mesh);
+
+        let controlPt = new THREE.Vector3().lerpVectors(startPt, targetPt, 0.5);
+        if (keystone === 'Convergence') {
+            controlPt.y += 3; 
+            controlPt.x += (Math.random() > 0.5 ? 5 : -5); 
+        }
+
+        projectiles.push({
+            mesh: mesh, t: 0, 
+            speed: (keystone === 'Pillar') ? 0.04 : 0.02, 
+            start: startPt, control: controlPt, end: targetPt,
+            rune: rune, keystone: keystone, color: color
+        });
+    }
+
+    // ==========================================
+    // 3. ATELIER GRIMOIRE INTERACTIVE CANVAS
+    // ==========================================
+    const bookOverlay = document.getElementById('bookOverlay');
+    const spellbookBtn = document.getElementById('spellbookBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const castBtn = document.getElementById('castBtn');
+    
+    const dCanvas = document.getElementById('drawingCanvas');
+    const dCtx = dCanvas.getContext('2d');
+    
+    let isDrawing = false;
+    let allStrokes = [];
+    let currentStroke = [];
+    
+    let detectedRune = 'Wind';
+    let detectedKeystone = 'Pillar';
+
+    function resizeCanvas() {
+        const container = dCanvas.parentElement;
+        dCanvas.width = container.clientWidth;
+        dCanvas.height = container.clientHeight;
+        
+        // Redraw basic setup parameters
+        dCtx.lineCap = 'round';
+        dCtx.lineJoin = 'round';
+        dCtx.strokeStyle = '#2c1e16';
+        dCtx.lineWidth = 5;
+    }
+
+    spellbookBtn.addEventListener('click', () => { 
+        bookOverlay.style.display = 'flex'; 
+        setTimeout(resizeCanvas, 50); // Small buffer to yield layout render bounds
+        resetCanvas(); 
+    });
+    
+    closeBtn.addEventListener('click', () => { bookOverlay.style.display = 'none'; });
+    clearBtn.addEventListener('click', resetCanvas);
+
+    function resetCanvas() {
+        dCtx.clearRect(0, 0, dCanvas.width, dCanvas.height);
+        allStrokes = [];
+        detectedRune = 'Wind'; detectedKeystone = 'Pillar';
+        updateUI();
+    }
+
+    // Capture localized canvas element coordinates smoothly
+    function getCanvasCoords(e) {
+        const rect = dCanvas.getBoundingClientRect();
+        // Fallback checks support touch interface events cleanly
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+    }
+
+    function startDrawing(e) {
+        isDrawing = true;
+        const coords = getCanvasCoords(e);
+        currentStroke = [coords];
+        
+        dCtx.beginPath();
+        dCtx.moveTo(coords.x, coords.y);
+        dCtx.strokeStyle = '#2c1e16';
+        dCtx.lineWidth = 5;
+    }
+
+    function drawStroke(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const coords = getCanvasCoords(e);
+        
+        dCtx.lineTo(coords.x, coords.y);
+        dCtx.stroke();
+        currentStroke.push(coords);
+    }
+
+    function stopDrawing() {
+        if (isDrawing && currentStroke.length > 2) {
+            allStrokes.push(currentStroke);
+            analyzeGlyph();
+        }
+        isDrawing = false;
+    }
+
+    // Desk Interface Handlers
+    dCanvas.addEventListener('mousedown', startDrawing);
+    dCanvas.addEventListener('mousemove', drawStroke);
+    window.addEventListener('mouseup', stopDrawing);
+
+    // Mobile Device Mirror Support
+    dCanvas.addEventListener('touchstart', startDrawing);
+    dCanvas.addEventListener('touchmove', drawStroke);
+    window.addEventListener('touchend', stopDrawing);
+
+    function analyzeGlyph() {
+        if (allStrokes.length === 0) return;
+        
+        const canvasCenter = { x: dCanvas.width / 2, y: dCanvas.height / 2 };
+        const centerRadius = dCanvas.width * 0.25; 
+        
+        let centerStrokes = [];
+        let outerStrokes = [];
+        let isGlyphClosed = false;
+
+        allStrokes.forEach(stroke => {
+            let minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+            let sumX = 0, sumY = 0;
+
+            stroke.forEach(p => {
+                if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+                if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+                sumX += p.x; sumY += p.y;
+            });
+
+            let w = maxX - minX;
+            let h = maxY - minY;
+            let cx = sumX / stroke.length;
+            let cy = sumY / stroke.length;
+            
+            const startPt = stroke[0];
+            const endPt = stroke[stroke.length - 1];
+            const distStartEnd = Math.hypot(endPt.x - startStartEnd = startPt.x, endPt.y - startPt.y);
+            
+            if (w > dCanvas.width * 0.65 && h > dCanvas.height * 0.65) {
+                isGlyphClosed = true;
+                return; 
+            }
+
+            const distToCenter = Math.hypot(cx - canvasCenter.x, cy - canvasCenter.y);
+            if (distToCenter < centerRadius) centerStrokes.push({ stroke, w, h });
+            else outerStrokes.push({ stroke, w, h, cy });
+        });
+
+        // Determine Elements (Rune)
+        if (centerStrokes.length > 0) {
+            let curveCount = 0;
+            let totalW = 0, totalH = 0;
+            
+            
